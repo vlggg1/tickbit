@@ -20,13 +20,13 @@ SITE_URL = (os.getenv("SITE_URL") or _auto).rstrip("/")
 
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 
-NEWSLETTER_ACTION = os.getenv("NEWSLETTER_ACTION", "")  # Ð°Ð´Ñ€ÐµÑ Ð½Ð° Ñ„Ð¾Ñ€Ð¼Ð°Ñ‚Ð° Ð¾Ñ‚ Buttondown/MailerLite
+NEWSLETTER_ACTION = os.getenv("NEWSLETTER_ACTION", "")  # Form endpoint from Buttondown or MailerLite
 
-ADSENSE = os.getenv("ADSENSE_CLIENT", "")  # Ð½Ð°Ð¿Ñ€. ca-pub-123...
+ADSENSE = os.getenv("ADSENSE_CLIENT", "")  # Example: ca-pub-123...
 
 MODEL = "llama-3.3-70b-versatile"
 
-MAX_NEW = 25  # Ð½Ð¾Ð²Ð¸ AI Ñ€ÐµÐ·ÑŽÐ¼ÐµÑ‚Ð° Ð½Ð° ÐµÐ´Ð½Ð¾ Ð¿ÑƒÑÐºÐ°Ð½Ðµ
+MAX_NEW = 25  # Maximum number of AI summaries per run
 
 KEEP_DAYS = 7
 
@@ -101,7 +101,7 @@ SYS = ("You are an editor for an English-language news site covering technology,
 
 
 def clean(text):
-    return re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(text or ""))).strip()
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(text or ""))).strip()
 
 
 def ago(timestamp):
@@ -123,7 +123,7 @@ def ai(title, text):
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": SYS},
-                {"role": "user", "content": f"Headline: {title}\\nText: {text[:1500]}"}
+                {"role": "user", "content": f"Headline: {title}\nText: {text[:1500]}"}
             ]
         },
         timeout=40
@@ -165,7 +165,7 @@ def load_items():
                 "link": link,
                 "ts": timestamp,
                 "ai": False,
-                "source": re.sub(r"^www\\.", "", link.split("/")[2]),
+                "source": re.sub(r"^www\.", "", link.split("/")[2]),
                 "title": title,
                 "summary": text[:220],
                 "why": ""
@@ -264,7 +264,7 @@ def stocks():
     return output
 
 
-TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ i.source }} Â· {{ i.when }}</div>
+TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ i.source }} | {{ i.when }}</div>
 
             <h3><a href="{{ i.link }}" rel="noopener nofollow" target="_blank">{{ i.title }}</a></h3><p>{{ i.summary }}</p>
 
@@ -272,7 +272,7 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             {% macro table(rows, label) %}<table class="mk"><caption>{{ label }}</caption><thead><tr><th></th><th>Asset</th><th class="r">Price (USD)</th><th class="r">24h</th><th class="r hide">7d</th><th class="hide">Trend</th></tr></thead><tbody>
 
-            {% for p in rows %}<tr data-s="{{ p.sym }}"><td><button class="fav" aria-label="Favorite: {{ p.sym }}" aria-pressed="false">â˜†</button></td><td><b>{{ p.sym }}</b> <span class="mute hide">{{ p.name }}</span></td>
+            {% for p in rows %}<tr data-s="{{ p.sym }}"><td><button class="fav" aria-label="Favorite: {{ p.sym }}" aria-pressed="false">Add</button></td><td><b>{{ p.sym }}</b> <span class="mute hide">{{ p.name }}</span></td>
 
             <td class="r">{{ p.price }}</td><td class="r {{ 'u' if p.chg>=0 else 'd' }}">{{ '+' if p.chg>=0 }}{{ p.chg }}%</td><td class="r hide {{ 'u' if p.chg7>=0 else 'd' }}">{{ '+' if p.chg7>=0 }}{{ p.chg7 }}%</td><td class="hide {{ 'u' if p.chg7>=0 else 'd' }}">{{ p.spark }}</td></tr>
 
@@ -288,7 +288,7 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-            <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=PT+Serif:wght@400;700&display=swap&subset=cyrillic" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=PT+Serif:wght@400;700&display=swap" rel="stylesheet">
 
             {% if adsense %}<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense }}" crossorigin="anonymous"></script>{% endif %}
 
@@ -354,7 +354,7 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             </style></head><body>
 
-            {% if tape %}<div class="tape" aria-label="Prices"><div>{% for _ in range(2) %}{% for p in tape %}<span>{{ p.sym }} ${{ p.price }} <em class="{{ 'u' if p.chg>=0 else 'd' }}" style="font-style:normal">{{ 'â–²' if p.chg>=0 else 'â–¼' }}{{ p.chg|abs }}%</em></span>{% endfor %}{% endfor %}</div></div>{% endif %}
+            {% if tape %}<div class="tape" aria-label="Prices"><div>{% for _ in range(2) %}{% for p in tape %}<span>{{ p.sym }} ${{ p.price }} <em class="{{ 'u' if p.chg>=0 else 'd' }}" style="font-style:normal">{{ '+' if p.chg>=0 else '-' }}{{ p.chg|abs }}%</em></span>{% endfor %}{% endfor %}</div></div>{% endif %}
 
             <header><div class="w"><a class="logo" href="{{ root }}">Ticker<b>Bit</b></a>
 
@@ -372,9 +372,9 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             {% elif kind=='home' %}
 
-            <h1>Todayâ€™s Briefing</h1><p class="lead">{{ today }}: the latest on AI, crypto, stocks, and politics â€” clearly explained.</p>
+            <h1>Today's Briefing</h1><p class="lead">{{ today }}: the latest on AI, crypto, stocks, and politics - clearly explained.</p>
 
-            <div class="top"><div>{% if lead %}<div class="hero"><div class="meta">{{ lead.source }} Â· {{ lead.when }}</div><h2><a href="{{ lead.link }}" target="_blank" rel="noopener nofollow">{{ lead.title }}</a></h2><p>{{ lead.summary }}</p>{% if lead.why %}<p class="why">{{ lead.why }}</p>{% endif %}</div>{% endif %}{{ ad(1) }}</div>
+            <div class="top"><div>{% if lead %}<div class="hero"><div class="meta">{{ lead.source }} | {{ lead.when }}</div><h2><a href="{{ lead.link }}" target="_blank" rel="noopener nofollow">{{ lead.title }}</a></h2><p>{{ lead.summary }}</p>{% if lead.why %}<p class="why">{{ lead.why }}</p>{% endif %}</div>{% endif %}{{ ad(1) }}</div>
 
             <div>{{ table(crypto[:6], 'Crypto Today') }}<p><a href="{{ root }}crypto/">All coins</a></p>{{ table(stocks[:6], 'Stocks Today') }}<p><a href="{{ root }}stocks/">All stocks</a></p></div></div>
 
@@ -390,7 +390,7 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             {% endif %}</main>
 
-            <footer><div class="w">Â© {{ year }} TickerBit Â· For informational purposes only â€” not financial advice Â· Updated: {{ updated }} Â· <a href="{{ root }}about/">About</a></div></footer>
+            <footer><div class="w">(c) {{ year }} TickerBit | For informational purposes only - not financial advice | Updated: {{ updated }} | <a href="{{ root }}about/">About</a></div></footer>
 
             <script>
 
@@ -408,7 +408,7 @@ TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ 
 
             try{var F=JSON.parse(localStorage.getItem("tbfav")||"[]");document.querySelectorAll("table.mk tbody").forEach(function(tb){
 
-            function paint(){tb.querySelectorAll("tr[data-s]").forEach(function(r){var on=F.indexOf(r.dataset.s)>-1,b=r.querySelector(".fav");b.textContent=on?"â˜…":"â˜†";b.setAttribute("aria-pressed",on)});
+            function paint(){tb.querySelectorAll("tr[data-s]").forEach(function(r){var on=F.indexOf(r.dataset.s)>-1,b=r.querySelector(".fav");b.textContent=on?"Saved":"Add";b.setAttribute("aria-pressed",on)});
 
             Array.from(tb.querySelectorAll("tr[data-s]")).sort(function(a,b){return(F.indexOf(b.dataset.s)>-1)-(F.indexOf(a.dataset.s)>-1)}).forEach(function(r){tb.appendChild(r)})}
 
@@ -481,7 +481,7 @@ def main():
         + "".join(f"<url><loc>{SITE_URL}/{path}</loc></url>" for path in pages)
         + "</urlset>", "utf-8")
     (OUT / "robots.txt").write_text(
-        f"User-agent: *\\nAllow: /\\nSitemap: {SITE_URL}/sitemap.xml\\n", "utf-8")
+        f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n", "utf-8")
     print(f"Done: {len(items)} stories, {len(cr)} coins, {len(st)} stocks.")
 
 
