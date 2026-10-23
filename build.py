@@ -13,6 +13,7 @@ from markupsafe import Markup
 socket.setdefaulttimeout(20)
 UA = {"User-Agent": "Mozilla/5.0 (compatible; TickBit/1.0)"}
 feedparser.USER_AGENT = UA["User-Agent"]
+YAHOO = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 
 _repo = os.getenv("GITHUB_REPOSITORY", "")
 _auto = f"https://{_repo.split('/')[0].lower()}.github.io/{_repo.split('/')[1]}" if "/" in _repo else "https://example.com"
@@ -58,12 +59,13 @@ SOURCES = {"techcrunch.com": "TechCrunch", "theverge.com": "The Verge", "technol
            "bbc.com": "BBC News", "theguardian.com": "The Guardian", "politico.com": "Politico", "npr.org": "NPR",
            "thehill.com": "The Hill", "aljazeera.com": "Al Jazeera"}
 
-COINS = "bitcoin,ethereum,solana,ripple,binancecoin,cardano,dogecoin,avalanche-2,chainlink,tron,polkadot,litecoin,stellar,sui,the-open-network"
-# The 15 largest US stocks by market cap (July 2026). Update this list from time to time.
-TOP_CAP = {"NVDA": "Nvidia", "AAPL": "Apple", "GOOGL": "Alphabet", "MSFT": "Microsoft", "AMZN": "Amazon",
-           "AVGO": "Broadcom", "META": "Meta", "TSLA": "Tesla", "LLY": "Eli Lilly", "MU": "Micron",
-           "WMT": "Walmart", "JPM": "JPMorgan", "AMD": "AMD", "XOM": "Exxon Mobil", "V": "Visa"}
-PICKS = {"MSTR": "Strategy", "ASST": "Strive", "IREN": "IREN", "TE": "T1 Energy", "COIN": "Coinbase", "PLTR": "Palantir"}
+STABLE = {"USDT", "USDC", "USDE", "DAI", "USDS", "FDUSD", "TUSD", "BUSD"}
+# Large US stocks. The 15 with the biggest live market cap are shown (this order is used if caps are unavailable).
+STOCK_POOL = {"NVDA": "Nvidia", "AAPL": "Apple", "GOOGL": "Alphabet", "MSFT": "Microsoft", "AMZN": "Amazon",
+              "AVGO": "Broadcom", "META": "Meta", "TSLA": "Tesla", "LLY": "Eli Lilly", "MU": "Micron",
+              "WMT": "Walmart", "JPM": "JPMorgan", "AMD": "AMD", "XOM": "Exxon Mobil", "V": "Visa",
+              "BRK-B": "Berkshire Hathaway", "ORCL": "Oracle", "NFLX": "Netflix", "MA": "Mastercard", "COST": "Costco",
+              "JNJ": "Johnson & Johnson", "BAC": "Bank of America", "PLTR": "Palantir", "CSCO": "Cisco"}
 
 
 # ---------- text helpers ----------
@@ -151,18 +153,29 @@ def spark(v, w=96, h=28):
     return Markup(f'<svg viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true"><polyline points="{pts}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>')
 
 
-def row(sym, name, price, chg, wk, series, kind):
+def money(v):
+    if not v:
+        return "—"
+    for lim, suf, d in ((1e12, "T", 2), (1e9, "B", 1), (1e6, "M", 0)):
+        if v >= lim:
+            return f"${v / lim:,.{d}f}{suf}"
+    return f"${v:,.0f}"
+
+
+def row(sym, name, price, chg, wk, series, kind, cap=None):
     p = f"{price:,.2f}" if price >= 1 else f"{price:.4f}"
-    return dict(sym=sym, name=name, price=p, chg=round(chg, 2), wk=round(wk, 2), spark=spark(series), kind=kind)
+    return dict(sym=sym, name=name, price=p, chg=round(chg, 2), wk=round(wk, 2), spark=spark(series), kind=kind,
+                cap=cap or 0, capf=money(cap))
 
 
 def crypto():
-    try:
+    try:  # the 15 largest cryptocurrencies by market cap
         d = requests.get("https://api.coingecko.com/api/v3/coins/markets", headers=UA, timeout=20, params={
-            "vs_currency": "usd", "ids": COINS, "sparkline": "true", "price_change_percentage": "24h,7d"}).json()
+            "vs_currency": "usd", "order": "market_cap_desc", "per_page": 15, "page": 1,
+            "sparkline": "true", "price_change_percentage": "24h,7d"}).json()
         return [row(c["symbol"].upper(), c["name"], c["current_price"], c.get("price_change_percentage_24h") or 0,
-                    c.get("price_change_percentage_7d_in_currency") or 0, c["sparkline_in_7d"]["price"][::4], "crypto")
-                for c in sorted(d, key=lambda c: -(c.get("market_cap") or 0))]
+                    c.get("price_change_percentage_7d_in_currency") or 0, c["sparkline_in_7d"]["price"][::4], "crypto", c.get("market_cap"))
+                for c in d]
     except Exception as ex:
         print("Crypto prices unavailable:", ex)
         return []
@@ -170,7 +183,7 @@ def crypto():
 
 def closes(sym):
     try:  # daily closes for ~1 month (Yahoo Finance)
-        r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}", headers=UA, timeout=10,
+        r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}", headers=YAHOO, timeout=10,
                          params={"range": "1mo", "interval": "1d"}).json()
         cl = [c for c in r["chart"]["result"][0]["indicators"]["quote"][0]["close"] if c]
         if len(cl) >= 6:
@@ -185,23 +198,43 @@ def closes(sym):
         return []
 
 
+def market_caps(symbols):
+    try:  # unofficial public Yahoo endpoint; may stop working at any time
+        s = requests.Session()
+        s.headers.update(YAHOO)
+        s.get("https://fc.yahoo.com", timeout=10)
+        crumb = s.get("https://query1.finance.yahoo.com/v1/test/getcrumb", timeout=10).text
+        r = s.get("https://query1.finance.yahoo.com/v7/finance/quote", timeout=15,
+                  params={"symbols": ",".join(symbols), "crumb": crumb}).json()
+        return {q["symbol"]: q.get("marketCap") for q in r["quoteResponse"]["result"]}
+    except Exception as ex:
+        print("Market caps unavailable:", ex)
+        return {}
+
+
 def stocks():
-    names = {**TOP_CAP, **PICKS}
     with ThreadPoolExecutor(8) as pool:
-        data = dict(zip(names, pool.map(closes, names)))
-    got = {s: row(s, names[s], cl[-1], (cl[-1] / cl[-2] - 1) * 100, (cl[-1] / cl[-6] - 1) * 100 if len(cl) >= 6 else (cl[-1] / cl[-2] - 1) * 100, cl, "stocks")
-           for s, cl in data.items() if len(cl) >= 2}
-    return [got[s] for s in TOP_CAP if s in got], [got[s] for s in PICKS if s in got]
+        data = dict(zip(STOCK_POOL, pool.map(closes, STOCK_POOL)))
+    caps = market_caps(list(STOCK_POOL))
+    rows = [row(s, STOCK_POOL[s], cl[-1], (cl[-1] / cl[-2] - 1) * 100,
+                (cl[-1] / cl[-6] - 1) * 100 if len(cl) >= 6 else (cl[-1] / cl[-2] - 1) * 100, cl, "stocks", caps.get(s))
+            for s, cl in data.items() if len(cl) >= 2]
+    if any(r["cap"] for r in rows):
+        rows.sort(key=lambda r: -r["cap"])
+    return rows[:15]
 
 
 # ---------- page template ----------
 TPL = """{% macro feed(rows) %}{% for i in rows %}<article><div class="meta">{{ i.source }} · {{ i.when }}</div>
 <h3><a href="{{ i.link }}" rel="noopener nofollow" target="_blank">{{ i.title }}</a></h3>{% if i.summary %}<p>{{ i.summary }}</p>{% endif %}</article>
 {% else %}<p class="empty">No stories yet. Please check back soon.</p>{% endfor %}{% endmacro %}
-{% macro table(rows, label) %}<table class="mk"><caption>{{ label }}</caption><thead><tr><th class="fv"><span class="sr-only">Favorite</span></th><th>Asset</th><th class="r">Price (USD)</th><th class="r">24h</th><th class="r hide">1W</th><th class="hide">Trend</th></tr></thead><tbody>
+{% macro table(rows, label) %}<table class="mk"><caption>{{ label }}</caption><thead><tr><th class="fv"><span class="sr-only">Favorite</span></th><th>Asset</th><th class="r">Price (USD)</th><th class="r">24h</th><th class="r">Market cap</th><th class="r hide">1W</th><th class="hide">Trend</th></tr></thead><tbody>
 {% for p in rows %}<tr data-s="{{ p.sym }}"><td class="fv"><button class="fav" aria-label="Add {{ p.sym }} to favorites" aria-pressed="false">☆</button></td><td><b>{{ p.sym }}</b> <span class="mute hide">{{ p.name }}</span></td><td class="r">{{ p.price }}</td>
-<td class="r {{ 'u' if p.chg>=0 else 'd' }}">{{ '+' if p.chg>=0 }}{{ p.chg }}%</td><td class="r hide {{ 'u' if p.wk>=0 else 'd' }}">{{ '+' if p.wk>=0 }}{{ p.wk }}%</td><td class="hide {{ 'u' if p.wk>=0 else 'd' }}">{{ p.spark }}</td></tr>
-{% else %}<tr><td colspan="6" class="empty">Prices are temporarily unavailable.</td></tr>{% endfor %}</tbody></table>{% endmacro %}
+<td class="r {{ 'u' if p.chg>=0 else 'd' }}">{{ '+' if p.chg>=0 }}{{ p.chg }}%</td><td class="r">{{ p.capf }}</td><td class="r hide {{ 'u' if p.wk>=0 else 'd' }}">{{ '+' if p.wk>=0 }}{{ p.wk }}%</td><td class="hide {{ 'u' if p.wk>=0 else 'd' }}">{{ p.spark }}</td></tr>
+{% else %}<tr><td colspan="7" class="empty">Prices are temporarily unavailable.</td></tr>{% endfor %}</tbody></table>{% endmacro %}
+{% macro mini(rows, label, href) %}<div class="blk"><table class="mk mini"><caption>{{ label }}</caption><thead><tr><th>Asset</th><th class="r">Price</th><th class="r">24h</th><th class="r">Mkt cap</th></tr></thead><tbody>
+{% for p in rows %}<tr><td><b>{{ p.sym }}</b></td><td class="r">{{ p.price }}</td><td class="r {{ 'u' if p.chg>=0 else 'd' }}">{{ '+' if p.chg>=0 }}{{ p.chg }}%</td><td class="r">{{ p.capf }}</td></tr>
+{% else %}<tr><td colspan="4" class="empty">Prices are temporarily unavailable.</td></tr>{% endfor %}</tbody></table><a class="more" href="{{ root }}{{ href }}/">See all →</a></div>{% endmacro %}
 {% macro ad(n) %}<aside class="ad" aria-label="Advertisement"><small>Advertisement</small>{% if adsense and slot %}<ins class="adsbygoogle" style="display:block" data-ad-client="{{ adsense }}" data-ad-slot="{{ slot }}" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>{% else %}<div class="slot">Ad space {{ n }}</div>{% endif %}</aside>{% endmacro %}
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ title }}</title><meta name="description" content="{{ desc }}"><link rel="canonical" href="{{ url }}">
@@ -218,7 +251,7 @@ a{color:inherit}:focus-visible{outline:3px solid var(--acc);outline-offset:2px}.
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .w{max-width:70rem;margin:0 auto;padding:0 1.25rem}
 .tape{background:var(--ink);color:var(--bg);overflow:hidden;white-space:nowrap;font-size:.72rem;font-weight:700;line-height:1.2}
-.tape div{display:inline-block;padding:.35rem 0;animation:run 45s linear infinite}.tape span{margin:0 .9rem}.tape .u{color:#35d6a0}.tape .d{color:#ff8a99}@keyframes run{to{transform:translateX(-50%)}}
+.tape div{display:inline-block;padding:.35rem 0;animation:run 60s linear infinite;will-change:transform}.tape span{margin:0 .9rem}.tape .u{color:#35d6a0}.tape .d{color:#ff8a99}@keyframes run{to{transform:translateX(-50%)}}
 @media(prefers-reduced-motion:reduce){.tape{overflow-x:auto}.tape div{animation:none}}
 .hd{display:grid;gap:.75rem;padding-top:1rem;padding-bottom:1rem}@media(min-width:62rem){.hd{grid-template-columns:auto 1fr minmax(16rem,22rem);align-items:center;gap:2rem}}
 .logo{font-weight:800;font-size:1.6rem;line-height:1;text-decoration:none;letter-spacing:-.04em}.logo b{color:#3d5bff}
@@ -248,7 +281,7 @@ form.nl input{width:100%;padding:.65rem .8rem;border:1px solid var(--line);backg
 form.nl button{margin-top:.6rem;width:100%;padding:.7rem;border:0;background:var(--acc);color:#fff;font:800 1rem Manrope,sans-serif;border-radius:.4rem;cursor:pointer}
 footer{margin-top:var(--gap);padding:1.75rem 0 2.5rem;border-top:1px solid var(--line);color:var(--mute);font-size:.82rem}footer a{text-decoration:underline}
 .prose{max-width:42rem;font:400 1.05rem/1.7 "Source Serif 4",Georgia,serif}.prose p{margin:0 0 1.1rem}
-</style></head><body data-k="{{ kind }}">
+.blk{margin-bottom:var(--gap)}.blk .mk{margin-bottom:0}.mini{font-size:.85rem}.mini th,.mini td{padding-left:.25rem;padding-right:.25rem}</style></head><body data-k="{{ kind }}">
 <div class="tape" id="tape" aria-label="Prices"><div>{% for _ in range(2) %}{% for p in tape %}<span>{{ p.sym }} ${{ p.price }} <em class="{{ 'u' if p.chg>=0 else 'd' }}" style="font-style:normal">{{ '▲' if p.chg>=0 else '▼' }} {{ p.chg|abs }}%</em></span>{% endfor %}{% endfor %}</div></div>
 <header><div class="w hd"><a class="logo" href="{{ root }}">Tick<b>Bit</b></a>
 <nav aria-label="Sections">{% for k,t in nav %}<a href="{{ root }}{{ k }}/" {% if k==kind %}aria-current="page"{% endif %}>{{ t }}</a>{% endfor %}</nav>
@@ -260,15 +293,14 @@ footer{margin-top:var(--gap);padding:1.75rem 0 2.5rem;border-top:1px solid var(-
 <p><strong>Everything on this site is for information only and is not financial, investment or legal advice.</strong> The site may display ads and affiliate links.</p></div>
 {% elif kind=='home' %}
 <div class="intro"><span class="chip">{{ today }}</span><h1>Today's News</h1><p class="lead">The day's most important stories in AI, politics, crypto and stocks.</p></div>
-<div class="g2"><div>{{ table(crypto[:5], 'Cryptocurrencies') }}<a class="more" href="{{ root }}crypto/">See all cryptocurrencies →</a></div><div>{{ table(topcap[:5], 'Stocks') }}<a class="more" href="{{ root }}stocks/">See all stocks →</a></div></div>
-{{ ad(1) }}
-<div class="g2">{% for g in groups %}<section><h2 class="sh">{{ g.label }}<a href="{{ root }}{{ g.key }}/">See all →</a></h2>{{ feed(g.rows) }}</section>{% endfor %}</div>
+<div class="side"><div class="g2">{% for g in groups %}<section><h2 class="sh">{{ g.label }}<a href="{{ root }}{{ g.key }}/">See all →</a></h2>{{ feed(g.rows) }}</section>{% endfor %}</div>
+<div>{{ mini(crypto[:5], 'Cryptocurrencies', 'crypto') }}{{ mini(topcap[:5], 'Stocks', 'stocks') }}{{ ad(1) }}</div></div>
 {% elif kind=='favorites' %}
 <div class="intro"><span class="chip">Watchlist</span><h1>Favorites</h1><p class="lead" id="favnote">Star assets on the Crypto and Stocks pages to follow them here and in the top bar.</p></div>
 <div class="g2"><div>{{ table(crypto, 'Cryptocurrencies') }}</div><div>{{ table(stocks, 'Stocks') }}</div></div>
 {% else %}
 <div class="intro"><span class="chip">{% if mk is defined %}Markets{% else %}News{% endif %}</span><h1>{{ h1 }}</h1><p class="lead">{{ lead }}</p></div>
-<div class="side"><div>{% if mk2 is defined %}{{ table(mk2, 'Top 15 by market cap') }}{% endif %}{% if mk is defined %}{{ table(mk, mklabel) }}{% endif %}
+<div class="side"><div>{% if mk is defined %}{{ table(mk, mklabel) }}{% endif %}
 <h2 class="sh">Latest news</h2>{{ feed(rows) }}</div>
 <div>{{ ad(1) }}{% if newsletter %}<form class="nl" action="{{ newsletter }}" method="post"><b>The briefing in your inbox</b><p class="mute">The day's key stories. Unsubscribe at any time.</p><label class="sr-only" for="em">Email address</label><input id="em" type="email" name="email" placeholder="Email address" required autocomplete="email"><button>Subscribe</button></form>{% endif %}</div></div>
 {% endif %}</main>
@@ -279,13 +311,16 @@ footer{margin-top:var(--gap);padding:1.75rem 0 2.5rem;border-top:1px solid var(-
 try{F=JSON.parse(localStorage.getItem("tbfav")||"[]")}catch(e){}
 try{D=JSON.parse(document.getElementById("d").textContent)}catch(e){}
 function tape(){try{var L=D.filter(function(x){return F.indexOf(x.s)>-1});
-if(!L.length)L=D.filter(function(x){return x.k=="crypto"}).slice(0,3).concat(D.filter(function(x){return x.k=="stocks"}).slice(0,3));
-var t=document.querySelector("#tape div");t.textContent="";
-for(var n=0;n<2;n++)L.forEach(function(x){var s=document.createElement("span"),e=document.createElement("em");e.className=x.c>=0?"u":"d";e.style.fontStyle="normal";
-e.textContent=(x.c>=0?"▲ ":"▼ ")+Math.abs(x.c)+"%";s.append(x.s+" $"+x.p+" ",e);t.append(s)})}catch(e){}}
-tape();
+if(!L.length)L=D.filter(function(x){return x.k=="crypto"&&!x.z}).slice(0,3).concat(D.filter(function(x){return x.k=="stocks"}).slice(0,3));
+if(!L.length)return;var t=document.querySelector("#tape div");t.textContent="";
+function add(){L.forEach(function(x){var s=document.createElement("span"),e=document.createElement("em");e.className=x.c>=0?"u":"d";e.style.fontStyle="normal";
+e.textContent=(x.c>=0?"▲ ":"▼ ")+Math.abs(x.c)+"%";s.append(x.s+" $"+x.p+" ",e);t.append(s)})}
+var vw=document.documentElement.clientWidth,n=0;do{add();n++}while(t.scrollWidth<vw&&n<40);
+var w=t.scrollWidth,k=t.childNodes.length;for(var i=0;i<k;i++)t.append(t.childNodes[i].cloneNode(true));
+t.style.animationDuration=Math.max(w/55,8)+"s"}catch(e){}}
+tape();window.addEventListener("load",tape);
 try{var fav=document.body.dataset.k=="favorites";
-document.querySelectorAll("table.mk tbody").forEach(function(tb){
+document.querySelectorAll("table.mk:not(.mini) tbody").forEach(function(tb){
 function paint(){var rows=Array.from(tb.querySelectorAll("tr[data-s]")),on=function(r){return F.indexOf(r.dataset.s)>-1};
 rows.forEach(function(r){var b=r.querySelector(".fav");b.textContent=on(r)?"★":"☆";b.setAttribute("aria-pressed",on(r));if(fav)r.style.display=on(r)?"":"none"});
 rows.sort(function(a,b){return on(b)-on(a)}).forEach(function(r){tb.appendChild(r)});
@@ -304,8 +339,8 @@ document.addEventListener("click",function(e){if(!e.target.closest(".sr"))res.st
 
 LEADS = {"ai": "The latest news in artificial intelligence.",
          "politics": "Headlines from outlets across the political spectrum.",
-         "crypto": "Prices, one-week trends and the latest news for 15 leading cryptocurrencies.",
-         "stocks": "The 15 largest US stocks by market cap, plus our picks, with 30-day trends and the latest news."}
+         "crypto": "The 15 largest cryptocurrencies by market cap, with prices, one-week trends and the latest news.",
+         "stocks": "The 15 largest US stocks by market cap, with prices, 30-day trends and the latest news."}
 
 
 def main():
@@ -313,19 +348,19 @@ def main():
     for i in items:
         i["when"] = ago(i["ts"])
     cr = crypto()
-    tc, pk = stocks()
-    st = tc + pk
+    tc = stocks()
+    st = tc
     now = datetime.now(timezone.utc)
-    base = dict(tape=cr[:3] + tc[:3], nav=[(k, v[0]) for k, v in TOPICS.items()] + [("favorites", "★ Favorites")],
+    base = dict(tape=[r for r in cr if r["sym"] not in STABLE][:3] + tc[:3], nav=[(k, v[0]) for k, v in TOPICS.items()] + [("favorites", "★ Favorites")],
                 adsense=ADSENSE, slot=ADSENSE_SLOT, newsletter=NEWSLETTER_ACTION, year=now.year,
                 updated=now.strftime("%b %d, %Y, %H:%M UTC").replace(" 0", " "), kind="", crypto=cr, stocks=st, topcap=tc,
-                data=[{"s": r["sym"], "p": r["price"], "c": r["chg"], "k": r["kind"]} for r in cr + st])
+                data=[{"s": r["sym"], "p": r["price"], "c": r["chg"], "k": r["kind"], "z": r["sym"] in STABLE} for r in cr + st])
     pages = {"": dict(kind="home", title="TickBit: daily news on AI, politics, crypto and stocks",
                       desc="The day's most important stories in AI, politics, cryptocurrencies and stocks, with market prices.",
                       today=now.strftime("%A, %B %d").replace(" 0", " "),
                       groups=[dict(key=k, label=v[1], rows=pick(items, k, 4, 2)) for k, v in TOPICS.items()])}
     for k, v in TOPICS.items():
-        extra = dict(mk=cr, mklabel="Leading cryptocurrencies") if k == "crypto" else dict(mk2=tc, mk=pk, mklabel="Our picks") if k == "stocks" else {}
+        extra = dict(mk=cr, mklabel="Top 15 by market cap") if k == "crypto" else dict(mk=tc, mklabel="Top 15 US stocks by market cap") if k == "stocks" else {}
         pages[f"{k}/"] = dict(kind=k, title=f"{v[1]}: news and prices | TickBit" if extra else f"{v[1]}: latest news | TickBit",
                               desc=LEADS[k], h1=v[1], lead=LEADS[k], rows=pick(items, k, 30), **extra)
     pages["favorites/"] = dict(kind="favorites", title="Favorites | TickBit", desc="Your followed cryptocurrencies and stocks.")
