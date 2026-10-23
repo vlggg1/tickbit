@@ -7,7 +7,9 @@ import feedparser
 import requests
 from jinja2 import Environment
  
-SITE_URL = os.getenv("SITE_URL", "https://example.com").rstrip("/")
+_repo = os.getenv("GITHUB_REPOSITORY", "")
+_auto = f"https://{_repo.split('/')[0].lower()}.github.io/{_repo.split('/')[1]}" if "/" in _repo else "https://example.com"
+SITE_URL = (os.getenv("SITE_URL") or _auto).rstrip("/")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 NEWSLETTER_ACTION = os.getenv("NEWSLETTER_ACTION", "")  # адрес на формата от Buttondown/MailerLite
 ADSENSE = os.getenv("ADSENSE_CLIENT", "")  # напр. ca-pub-123...
@@ -133,7 +135,7 @@ TPL = """<!doctype html><html lang="bg"><head><meta charset="utf-8">
 :root{--bg:#f3f5f9;--paper:#fff;--ink:#101828;--mute:#5b6577;--line:#d9dee8;--acc:#2b50ff;--up:#0b8a5f;--down:#d42c3a;color-scheme:light}
 @media(prefers-color-scheme:dark){:root{--bg:#0c111c;--paper:#131a29;--ink:#e8ecf5;--mute:#98a2b8;--line:#25304a;--acc:#7b94ff;--up:#2fd39a;--down:#ff6b78;color-scheme:dark}}
 *{box-sizing:border-box}html{scroll-padding-top:4rem}
-body{margin:0;background:var(--bg);color:var(--ink);font:500 1rem/1.5 Manrope,system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:500 1rem/1.5 Manrope,system-ui,sans-serif;font-feature-settings:"locl" 0}
 a{color:inherit}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
 .tape{background:var(--ink);color:var(--bg);overflow:hidden;white-space:nowrap;font-size:.85rem;font-weight:700}
 .tape div{display:inline-block;padding:.5rem 0;animation:run 40s linear infinite}
@@ -165,8 +167,8 @@ footer{padding-top:3rem;padding-bottom:3rem;color:var(--mute);font-size:.85rem}
 .prose{max-width:42rem;font:400 1.05rem/1.7 "PT Serif",Georgia,serif}.empty{padding:2rem 0;color:var(--mute)}
 </style></head><body>
 {% if prices %}<div class="tape" aria-label="Цени"><div>{% for _ in range(2) %}{% for p in prices %}<span>{{ p.sym }} ${{ p.price }} <em class="{{ 'u' if p.chg>=0 else 'd' }}" style="font-style:normal">{{ '▲' if p.chg>=0 else '▼' }} {{ p.chg|abs }}%</em></span>{% endfor %}{% endfor %}</div></div>{% endif %}
-<header><a class="logo" href="/">Тик<b>Бит</b></a>
-<nav>{% for k,t in nav %}<a href="/{{ k }}/" {% if k==kind %}aria-current="page"{% endif %}>{{ t }}</a>{% endfor %}<a href="/za-nas/" {% if kind=='about' %}aria-current="page"{% endif %}>За нас</a></nav></header>
+<header><a class="logo" href="{{ root }}">Тик<b>Бит</b></a>
+<nav>{% for k,t in nav %}<a href="{{ root }}{{ k }}/" {% if k==kind %}aria-current="page"{% endif %}>{{ t }}</a>{% endfor %}<a href="{{ root }}za-nas/" {% if kind=='about' %}aria-current="page"{% endif %}>За нас</a></nav></header>
 <main>
 {% if kind=='about' %}<h1>За ТикБит</h1><div class="prose">
 <p>ТикБит е ежедневен преглед на новините за изкуствен интелект, крипто и акции на български. Събираме заглавия от големи международни издания, а AI ги резюмира със собствени думи и обяснява какво означават.</p>
@@ -175,7 +177,7 @@ footer{padding-top:3rem;padding-bottom:3rem;color:var(--mute);font-size:.85rem}
 {% else %}
 <h1>{{ h1 }}</h1><p class="lead">{{ lead }}</p>
 <div class="grid"><div>
-{% for g in groups %}{% if g.label %}<h2>{{ g.label }}<a href="/{{ g.key }}/">Всички</a></h2>{% endif %}
+{% for g in groups %}{% if g.label %}<h2>{{ g.label }}<a href="{{ root }}{{ g.key }}/">Всички</a></h2>{% endif %}
 {% for i in g.rows %}<article><div class="meta">{{ i.source }} · {{ i.when }}</div>
 <h3><a href="{{ i.link }}" rel="noopener nofollow" target="_blank">{{ i.title }}</a></h3>
 <p>{{ i.summary }}</p>{% if i.why %}<p class="why">{{ i.why }}</p>{% endif %}</article>
@@ -212,7 +214,7 @@ def main():
                               groups=[dict(key=k, label="", rows=[i for i in items if i["topic"] == k][:30])])
     pages["za-nas/"] = dict(title="За ТикБит", desc="Какво е ТикБит и как работи.", kind="about")
     for path, ctx in pages.items():
-        ctx = {**base, **ctx, "url": f"{SITE_URL}/{path}"}
+        ctx = {**base, **ctx, "url": f"{SITE_URL}/{path}", "root": "../" if path else "./"}
         d = OUT / path
         d.mkdir(parents=True, exist_ok=True)
         (d / "index.html").write_text(tpl.render(**ctx), "utf-8")
