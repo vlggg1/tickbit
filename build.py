@@ -2,7 +2,7 @@
 # Optional environment variables: SITE_URL, GITHUB_REPOSITORY, GROQ_API_KEY,
 # ADSENSE_CLIENT, ADSENSE_SLOT, NEWSLETTER_ACTION.
 
-import calendar, hashlib, html, json, os, re, time
+import calendar, hashlib, html, json, os, re, time, shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -313,7 +313,22 @@ def main():
     urls = "".join(f"<url><loc>{html.escape(SITE_URL+'/'+p)}</loc></url>" for p in pages)
     (OUT/"sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+urls+"</urlset>","utf-8")
     (OUT/"robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n","utf-8")
-    print(f"Built {len(news)} stories, {len(crypto)} cryptocurrencies, {len(stocks)} stocks into {OUT}/")
+
+    # Publish-compatible mirror: keep the normal ./site build artifact, but also
+    # copy its generated files to the repository root for GitHub Pages configured
+    # to publish from the root branch. This prevents a successful build from
+    # leaving the live homepage unchanged when Pages is not deploying ./site.
+    project_root = Path(".").resolve()
+    output_dir = OUT.resolve()
+    if output_dir != project_root and project_root in output_dir.parents:
+        for item in OUT.iterdir():
+            target = Path(item.name)
+            if item.is_dir():
+                shutil.copytree(item, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, target)
+
+    print(f"Built {len(news)} stories, {len(crypto)} cryptocurrencies, {len(stocks)} stocks into {OUT}/ and mirrored generated files to repository root.")
 
 if __name__ == "__main__":
     main()
