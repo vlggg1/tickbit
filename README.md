@@ -1,26 +1,19 @@
-# ТикБит
+# TickBit
 
-Ежедневен AI преглед на новините за AI, крипто и акции на български. Сайтът е статичен: скриптът `build.py` събира новини, AI ги резюмира, а резултатът се публикува безплатно в GitHub Pages и се обновява сам на всеки 3 часа.
+Daily news on AI, politics, crypto and stocks, plus market prices. The site is static: `build.py` collects headlines and prices, and GitHub Pages hosts the result for free. It rebuilds automatically every 3 hours. No API keys are needed.
 
-## Пускане (около 15 минути)
+## Publishing
 
-1. Направи безплатен акаунт в **github.com** и създай ново хранилище (repository), например `tickbit`. Качи в него всички файлове от тази папка (включително скритата папка `.github`).
-2. Вземи безплатен ключ от **console.groq.com** (API Keys).
-3. В хранилището: **Settings → Secrets and variables → Actions**
-   - раздел *Secrets* → New repository secret: име `GROQ_API_KEY`, стойност твоят ключ.
-   - раздел *Variables* → New repository variable: `SITE_URL` със стойност адреса на сайта (напр. `https://твоето-име.github.io/tickbit`, или твоя домейн по-късно).
-4. **Settings → Pages** → Source: избери **GitHub Actions**.
-5. Отиди в **Actions → Build and deploy TickBit → Run workflow**. След 1–2 минути сайтът е онлайн.
+1. Create a public repository on github.com and upload all files from this folder (including the `.github` folder).
+2. **Settings → Pages → Source: GitHub Actions**.
+3. **Actions → Build and deploy TickBit → Run workflow**.
 
-## По-късно
+## Optional settings (Settings → Secrets and variables → Actions → Variables)
 
-- **Собствен домейн:** купи домейн, после Settings → Pages → Custom domain, и обнови `SITE_URL`.
-- **Бюлетин:** направи безплатен акаунт в Buttondown или MailerLite, вземи адреса на формата за абонамент и го сложи като променлива `NEWSLETTER_ACTION`. Формата се появява сама.
-- **Реклами:** когато има редовен трафик, кандидатствай в Google AdSense и сложи кода си като променлива `ADSENSE_CLIENT` (напр. `ca-pub-123...`).
-- **Промяна на източници, теми и акции:** в началото на `build.py` (`TOPICS` и `STOCKS`).
+- `SITE_URL`: your own domain, if you add one.
+- `NEWSLETTER_ACTION`: the form address from Buttondown or MailerLite. The signup form appears automatically.
+- `ADSENSE_CLIENT` and `ADSENSE_SLOT`: your Google AdSense details. Until then the ad spaces show gray placeholders.
 
-## Важно
+## Editing
 
-- Ако `GROQ_API_KEY` липсва или лимитът свърши, сайтът пак се публикува, но с оригиналните заглавия вместо AI резюмета.
-- Проверявай правилата на източниците и на рекламните и партньорските програми, особено за финансови продукти.
-- Съдържанието е информационно и не е финансов съвет. Текстът за това е във футъра и на страницата "За нас".
+Sources, cryptocurrencies and stocks are listed at the top of `build.py`. The list of the 15 largest US stocks (`TOP_CAP`) is fixed and should be refreshed from time to time.
