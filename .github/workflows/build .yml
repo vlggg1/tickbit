@@ -2,7 +2,7 @@ name: Build and deploy TickBit
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # на всеки 3 часа
+    - cron: "0 */3 * * *"   # every 3 hours
   workflow_dispatch: {}
   push:
     branches: [main]
@@ -14,11 +14,12 @@ permissions:
 
 concurrency:
   group: tickbit
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
     steps:
@@ -29,17 +30,16 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python build.py
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SITE_URL: ${{ vars.SITE_URL }}
           NEWSLETTER_ACTION: ${{ vars.NEWSLETTER_ACTION }}
           ADSENSE_CLIENT: ${{ vars.ADSENSE_CLIENT }}
-      - name: Save summaries cache
+          ADSENSE_SLOT: ${{ vars.ADSENSE_SLOT }}
+      - name: Save story archive
         run: |
           git config user.name "tickbit-bot"
           git config user.email "bot@users.noreply.github.com"
-          mkdir -p data drafts && touch drafts/.gitkeep
-          git add data drafts
-          git commit -m "Update cache and drafts" || echo "nothing to commit"
+          git add data
+          git commit -m "Update story archive" || echo "nothing to commit"
           git pull --rebase || true
           git push || true
       - uses: actions/upload-pages-artifact@v3
