@@ -2,7 +2,7 @@ name: Build and deploy TickBit
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # every 3 hours
+    - cron: "*/20 * * * *"   # every 20 minutes (GitHub may delay it)
   workflow_dispatch: {}
   push:
     branches: [main]
@@ -34,6 +34,7 @@ jobs:
           NEWSLETTER_ACTION: ${{ vars.NEWSLETTER_ACTION }}
           ADSENSE_CLIENT: ${{ vars.ADSENSE_CLIENT }}
           ADSENSE_SLOT: ${{ vars.ADSENSE_SLOT }}
+          QUOTES_URL: ${{ vars.QUOTES_URL }}
       - name: Save story archive
         run: |
           git config user.name "tickbit-bot"
